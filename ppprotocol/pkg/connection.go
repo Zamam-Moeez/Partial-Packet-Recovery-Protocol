@@ -69,12 +69,13 @@ type Connection struct {
 
 // Listener accepts incoming PPP connections
 type Listener struct {
-	conn        *net.UDPConn
-	connections map[string]*Connection
-	connMutex   sync.Mutex
-	closeChan   chan struct{}
-	closed      atomic.Bool
-	options     *Options
+	conn         *net.UDPConn
+	connections  map[string]*Connection
+	connMutex    sync.Mutex
+	closeChan    chan struct{}
+	closed       atomic.Bool
+	options      *Options
+	acceptChan   chan *Connection
 }
 
 // dial establishes a new outgoing connection
@@ -205,6 +206,7 @@ func Listen(address string, options *Options) (*Listener, error) {
 		connections: make(map[string]*Connection),
 		closeChan:   make(chan struct{}),
 		options:     options,
+		acceptChan:  make(chan *Connection, 10), // Buffer for 10 pending connections
 	}
 
 	// Start accepting connections
@@ -215,9 +217,21 @@ func Listen(address string, options *Options) (*Listener, error) {
 
 // Accept waits for and returns the next connection
 func (l *Listener) Accept() (*Connection, error) {
-	// This would need a channel to queue accepted connections
-	// For simplicity, we'll just return an error for now
-	return nil, errors.New("not implemented")
+	// Check if listener is closed
+	if l.closed.Load() {
+		return nil, ErrConnectionClosed
+	}
+
+	// Wait for a new connection or close signal
+	select {
+	case <-l.closeChan:
+		return nil, ErrConnectionClosed
+	case conn, ok := <-l.acceptChan:
+		if !ok {
+			return nil, ErrConnectionClosed
+		}
+		return conn, nil
+	}
 }
 
 // acceptLoop processes incoming packets and creates new connections
@@ -269,7 +283,18 @@ func (l *Listener) acceptLoop() {
 			conn = newConnection(l.conn, addr, l, l.options)
 			l.connections[connKey] = conn
 			
-			// TODO: Implement a proper Accept() queue
+			// Add to the accept queue
+			select {
+			case l.acceptChan <- conn:
+				// Connection added to accept queue
+				if l.options.LogLevel > 1 {
+					log.Printf("New connection from %s added to accept queue", addr.String())
+				}
+			default:
+				// Queue full, log error
+				log.Printf("Accept queue full, dropping connection from %s", addr.String())
+				// Could send a RST packet here
+			}
 		}
 		l.connMutex.Unlock()
 
@@ -289,6 +314,7 @@ func (l *Listener) acceptLoop() {
 func (l *Listener) Close() error {
 	if l.closed.CompareAndSwap(false, true) {
 		close(l.closeChan)
+		close(l.acceptChan) // Close the accept channel
 		
 		// Close all connections
 		l.connMutex.Lock()
@@ -441,7 +467,7 @@ func (c *Connection) handleData(p *packet.Packet) {
 	}
 
 	// Process the data
-	received, complete := c.receiveBuffer.ProcessPacket(
+	received, _ := c.receiveBuffer.ProcessPacket(
 		p.SequenceNum,
 		p.Payload,
 		p.Offset,
@@ -475,7 +501,7 @@ func (c *Connection) handleAck(p *packet.Packet) {
 	}
 
 	// Regular ACK processing
-	bytesAcked, complete := c.sendBuffer.Acknowledge(
+	bytesAcked, _ := c.sendBuffer.Acknowledge(
 		p.SequenceNum,
 		p.Offset,
 		uint32(p.TotalSize - packet.HeaderSize - packet.ChecksumSize),
@@ -732,7 +758,7 @@ func (c *Connection) Receive(timeout time.Duration) ([]byte, error) {
 
 	for {
 		// Check for complete message
-		seqNum, data, complete := c.receiveBuffer.GetNextComplete()
+		_, data, complete := c.receiveBuffer.GetNextComplete()
 		if complete {
 			return data, nil
 		}
