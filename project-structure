@@ -1,0 +1,23 @@
+Partial-Packet-Recovery-Protocol/
+    ppprotocol/
+    ├── cmd/
+    │   ├── ppclient/        # Example client application
+    │   │   └── main.go
+    │   └── ppserver/        # Example server application
+    │       └── main.go
+    ├── internal/
+    │   ├── buffer/          # Buffer management
+    │   │   ├── receive_buffer.go
+    │   │   └── send_buffer.go
+    │   ├── packet/          # Packet definitions and serialization
+    │   │   ├── packet.go
+    │   │   └── ack.go
+    │   └── timer/           # Timing and retransmission logic
+    │       └── timer.go
+    ├── pkg/
+    │   ├── connection.go    # Public connection interface
+    │   ├── options.go       # Configuration options
+    │   └── stats.go         # Connection statistics
+    ├── go.mod
+
+README.md
