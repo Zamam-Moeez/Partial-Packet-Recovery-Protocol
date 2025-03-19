@@ -162,6 +162,20 @@ func (p *Packet) IsKeepAlive() bool {
 	return p.Flags&FlagKeepAlive != 0
 }
 
+// AckType defines different types of acknowledgments
+type AckType uint8
+
+const (
+	// AckFull indicates a complete packet has been received
+	AckFull AckType = iota
+	
+	// AckPartial indicates only a portion of the packet has been received
+	AckPartial
+	
+	// AckDuplicate indicates a duplicate packet was received
+	AckDuplicate
+)
+
 // CreatePartialPacket creates a new partial packet with the given parameters
 func CreatePartialPacket(sequenceNum uint32, originalSize uint16, offset uint32, payload []byte) (*Packet, error) {
 	if len(payload) > MaxPayloadSize {
@@ -191,10 +205,64 @@ func CreateAckPacket(sequenceNum uint32, bytesReceived uint32) *Packet {
 	}
 }
 
+// CreateSynAckPacket creates a SYN-ACK packet for connection establishment
+func CreateSynAckPacket() *Packet {
+	return &Packet{
+		SequenceNum: 0,
+		TotalSize:   uint16(HeaderSize + ChecksumSize),
+		Flags:       FlagSYN | FlagACK,
+		Offset:      0,
+		Payload:     []byte{},
+		Checksum:    0, // Computed during serialization
+	}
+}
+
+// CreateFinAckPacket creates a FIN-ACK packet for connection termination
+func CreateFinAckPacket(sequenceNum uint32) *Packet {
+	return &Packet{
+		SequenceNum: sequenceNum,
+		TotalSize:   uint16(HeaderSize + ChecksumSize),
+		Flags:       FlagFIN | FlagACK,
+		Offset:      0,
+		Payload:     []byte{},
+		Checksum:    0, // Computed during serialization
+	}
+}
+
+// CreateResetPacket creates a RST packet for connection reset
+func CreateResetPacket(sequenceNum uint32) *Packet {
+	return &Packet{
+		SequenceNum: sequenceNum,
+		TotalSize:   uint16(HeaderSize + ChecksumSize),
+		Flags:       FlagRST,
+		Offset:      0,
+		Payload:     []byte{},
+		Checksum:    0, // Computed during serialization
+	}
+}
+
 // BytesReceived returns the number of bytes received (for ACK packets)
 func (p *Packet) BytesReceived() uint32 {
 	if p.IsAck() {
 		return p.Offset
 	}
 	return 0
+}
+
+// AckTypeSent returns the type of acknowledgment
+func (p *Packet) AckTypeSent() AckType {
+	if !p.IsAck() {
+		return AckFull // Not an ACK
+	}
+	
+	if p.BytesReceived() == uint32(p.TotalSize) {
+		return AckFull
+	}
+	
+	return AckPartial
+}
+
+// IsFullyAcknowledged returns true if this ACK indicates full reception
+func (p *Packet) IsFullyAcknowledged() bool {
+	return p.IsAck() && p.BytesReceived() == uint32(p.TotalSize)
 }

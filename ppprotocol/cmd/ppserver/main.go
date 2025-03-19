@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Zamam-Moeez/Partial-Packet-Recovery-Protocol/ppprotocol"
+	"github.com/Zamam-Moeez/Partial-Packet-Recovery-Protocol/ppprotocol/pkg"
 )
 
 var (
